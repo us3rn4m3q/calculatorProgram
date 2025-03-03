@@ -3,50 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <title>Distributed Calculator</title>
-    <link rel="stylesheet" href="styles.css">
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            font-family: Arial, sans-serif;
+        }
+        input {
+            padding: 5px;
+            margin-right: 10px;
+        }
+        button {
+            padding: 5px 10px;
+        }
+        #result {
+            margin-top: 20px;
+        }
+    </style>
 </head>
 <body>
 <div class="container">
     <h1>Distributed Calculator</h1>
     <div>
-        <input type="text" id="expression" placeholder="Enter expression (e.g., 2 + 3 * 4)">
+        <input type="text" id="expression" placeholder="Enter expression (e.g., 2 + 3)">
         <button onclick="calculateAndWait()">Calculate & Wait</button>
     </div>
     <div id="result">
-        <p>Status: <span id="status" class="waiting">Waiting...</span></p>
+        <p>Status: <span id="status">Waiting...</span></p>
         <p>Result: <span id="result-value">N/A</span></p>
-    </div>
-    
-    <div class="examples">
-        <h3>Example Expressions:</h3>
-        <ul>
-            <li><a href="#" onclick="setExpression('2 + 3'); return false;">2 + 3</a></li>
-            <li><a href="#" onclick="setExpression('10 - 5'); return false;">10 - 5</a></li>
-            <li><a href="#" onclick="setExpression('4 * 6'); return false;">4 * 6</a></li>
-            <li><a href="#" onclick="setExpression('15 / 3'); return false;">15 / 3</a></li>
-        </ul>
     </div>
 </div>
 <script>
-    function setExpression(expr) {
-        document.getElementById('expression').value = expr;
-    }
-
     async function calculateAndWait() {
-        const expression = document.getElementById('expression').value.trim();
+        const expression = document.getElementById('expression').value;
         if (!expression) {
             alert('Please enter an expression!');
             return;
         }
 
-        // Reset UI
-        const statusElement = document.getElementById('status');
-        statusElement.textContent = 'Pending';
-        statusElement.className = 'pending';
+        // Сбрасываем UI
+        document.getElementById('status').textContent = 'Pending';
         document.getElementById('result-value').textContent = 'N/A';
 
         try {
-            // Step 1: Send expression
+            // Шаг 1: Отправляем выражение
             console.log('Sending expression:', expression);
             const response = await fetch('http://localhost:8080/api/v1/calculate', {
                 method: 'POST',
@@ -54,12 +54,10 @@
                 body: JSON.stringify({ expression })
             });
 
-            if (!response.ok) {
+            if (response.status !== 201) {
                 const errorText = await response.text();
                 console.error('Failed to calculate:', response.status, errorText);
-                statusElement.textContent = 'Error';
-                statusElement.className = 'error';
-                document.getElementById('result-value').textContent = errorText || 'Failed to submit calculation';
+                alert(`Error: ${response.status} - ${errorText}`);
                 return;
             }
 
@@ -67,67 +65,55 @@
             const expressionId = data.id;
             console.log('Assigned ID:', expressionId);
 
-            // Step 2: Poll for results
+            // Шаг 2: Ждём результата
             let status = 'pending';
             let result = null;
-            const maxAttempts = 30;
-            let attempts = 0;
-            
-            while (status.toLowerCase() === 'pending' && attempts < maxAttempts) {
-                attempts++;
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                console.log(`Checking status for ID: ${expressionId} (Attempt ${attempts})`);
-                
+            while (status === 'pending') {
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Ждём 1 секунду
+                console.log('Checking status for ID:', expressionId);
                 const statusResponse = await fetch(`http://localhost:8080/api/v1/expressions/${expressionId}`);
                 if (!statusResponse.ok) {
                     console.error(`Check status error: ${statusResponse.status} - ${await statusResponse.text()}`);
-                    statusElement.textContent = 'Error checking status';
-                    statusElement.className = 'error';
+                    alert('Failed to get status!');
                     return;
                 }
 
                 const statusData = await statusResponse.json();
                 console.log('Raw response:', statusData);
 
-                // Handle the response format from the server
                 if (statusData.expression) {
-                    status = statusData.expression.Status || statusData.expression.status;
-                    result = statusData.expression.Result || statusData.expression.result;
+                    status = statusData.expression.status;
+                    result = statusData.expression.result;
+                } else if (statusData.expressions && statusData.expressions.length > 0) {
+                    status = statusData.expressions[0].Status;
+                    result = statusData.expressions[0].Result;
                 } else {
                     console.error('Invalid response format:', statusData);
-                    statusElement.textContent = 'Invalid response format';
-                    statusElement.className = 'error';
+                    alert('Invalid response format from server');
                     return;
                 }
 
-                // Update status while waiting
-                statusElement.textContent = status;
                 console.log('Current status:', status, 'Result:', result);
             }
 
-            // Step 3: Update UI with final result
-            console.log('Final - Status:', status, 'Result:', result);
-            
-            if (status.toLowerCase() === 'completed') {
-                statusElement.textContent = 'Completed';
-                statusElement.className = 'success';
-            } else if (status.toLowerCase() === 'error') {
-                statusElement.textContent = 'Error';
-                statusElement.className = 'error';
+            // Шаг 3: Обновляем UI
+            console.log('Updating UI - Status:', status, 'Result:', result);
+            if (status) {
+                document.getElementById('status').textContent = status;
             } else {
-                statusElement.textContent = status || 'Unknown';
+                document.getElementById('status').textContent = 'Unknown';
+                console.error('Status is undefined');
             }
 
             if (result !== null && result !== undefined) {
                 document.getElementById('result-value').textContent = result.toString();
             } else {
-                document.getElementById('result-value').textContent = 'No result returned';
+                document.getElementById('result-value').textContent = 'N/A';
+                console.error('Result is null or undefined');
             }
         } catch (error) {
             console.error('Error:', error);
-            statusElement.textContent = 'Error';
-            statusElement.className = 'error';
-            document.getElementById('result-value').textContent = error.message || 'Unknown error';
+            alert('Failed to process request!');
         }
     }
 </script>
